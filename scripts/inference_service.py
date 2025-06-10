@@ -16,11 +16,46 @@
 #!/usr/bin/env python3
 import os
 import argparse
+import json
+from pathlib import Path
 from gr00t.experiment.data_config import ConfigGenerator
 from gr00t.model.policy import Gr00tPolicy
 from gr00t.eval.robot import RobotInferenceServer
 from gr00t.data.transform.base import ComposedModalityTransform
 from typing import cast
+
+def is_huggingface_repo(path: str) -> bool:
+    """Check if the path looks like a HuggingFace repository ID."""
+    # HuggingFace repos typically have format: username/repo-name
+    # They don't start with ./ or / and contain at least one /
+    return ('/' in path and 
+            not path.startswith('./') and 
+            not path.startswith('/') and
+            not os.path.exists(path))  # Not a local directory
+
+def detect_model_config(model_path: str, default_num_cams: int = 2) -> tuple[int, int, list[str]]:
+    """
+    Auto-detect number of arms, cameras, and video keys from model metadata.
+    Returns (num_arms, num_cams, video_keys)
+    """
+    try:
+        # Align with policy._load_metadata: metadata.json is under experiment_cfg
+        if is_huggingface_repo(model_path):
+            from huggingface_hub import snapshot_download
+            snapshot = snapshot_download(repo_id=model_path, repo_type="model")
+            metadata_path = Path(snapshot) / "experiment_cfg" / "metadata.json"
+        else:
+            metadata_path = Path(model_path) / "experiment_cfg" / "metadata.json"
+        
+        metadata = json.loads(metadata_path.read_text())
+        # Extract video keys
+        video_keys = list(metadata.get('modalities', {}).get('video', {}).keys())
+        num_cams = len(video_keys)
+        action_keys = list(metadata.get('modalities', {}).get('action', {}).keys())
+        num_arms = len([k for k in action_keys if k.startswith('arm')]) or 1
+        return num_arms, num_cams, video_keys
+    except Exception:
+        return 1, default_num_cams, []  # fallback
 
 def main():
     parser = argparse.ArgumentParser("Gr00t Inference Server")
@@ -87,8 +122,22 @@ def main():
     elif not os.path.exists(args.model_path):
         raise FileNotFoundError(f"Local model path '{args.model_path}' not found.")
     
-    # Create data config and transforms
+    # Auto-detect camera configuration from model metadata
+    num_arms, num_cams, video_keys = detect_model_config(args.model_path, args.num_cams)
+
+    # Use detected configuration to override defaults
+    args.num_arms = num_arms
+    args.num_cams = num_cams
+
+    # Create data config
     data_gen = ConfigGenerator(num_arms=args.num_arms, num_cams=args.num_cams)
+
+    # Override video_keys if detected from metadata
+    if video_keys:
+        prefixed_video_keys = [f"video.{k}" if not k.startswith('video.') else k for k in video_keys]
+        print(f"Overriding ConfigGenerator video_keys with detected keys: {prefixed_video_keys}")
+        data_gen.video_keys = prefixed_video_keys
+    
     modality_cfg = data_gen.modality_config()
     # cast to expected ComposedModalityTransform
     modality_transform = cast(ComposedModalityTransform, data_gen.transform())

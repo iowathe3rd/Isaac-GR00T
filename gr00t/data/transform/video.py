@@ -131,14 +131,19 @@ class VideoTransform(ModalityTransform):
             split_keys = key.split(".")
             assert len(split_keys) == 2, f"Invalid key: {key}. Expected format: modality.key"
             sub_key = split_keys[1]
-            if sub_key in dataset_metadata.modalities.video:
-                self.original_resolutions[key] = dataset_metadata.modalities.video[
-                    sub_key
-                ].resolution
+            if sub_key not in dataset_metadata.modalities.video:
+                # fallback to first available video key
+                available = list(dataset_metadata.modalities.video.keys())
+                if available:
+                    fallback = available[0]
+                    print(f"Warning: Video key {sub_key} not found, using {fallback}")
+                    use_key = fallback
+                else:
+                    raise ValueError("No video modalities available in metadata to fallback to.")
             else:
-                raise ValueError(
-                    f"Video key {sub_key} not found in dataset metadata. Available keys: {dataset_metadata.modalities.video.keys()}"
-                )
+                use_key = sub_key
+            # set resolution for chosen key
+            self.original_resolutions[key] = dataset_metadata.modalities.video[use_key].resolution
         train_transform = self.get_transform(mode="train")
         eval_transform = self.get_transform(mode="eval")
         if self.backend == "albumentations":
