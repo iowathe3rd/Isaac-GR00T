@@ -129,34 +129,15 @@ def main():
     args.num_arms = num_arms
     args.num_cams = num_cams
 
-    # Create data config
-    data_gen = ConfigGenerator(num_arms=args.num_arms, num_cams=args.num_cams)
-
-    # Override video_keys if detected from metadata
+    # Create data config using metadata if available
     if video_keys:
+        # Use explicit names generator to match metadata
         prefixed_video_keys = [f"video.{k}" if not k.startswith('video.') else k for k in video_keys]
-        print(f"Overriding ConfigGenerator video_keys with detected keys: {prefixed_video_keys}")
-        data_gen.video_keys = prefixed_video_keys
+        state_keys = [f"state.arm_{i}" for i in range(args.num_arms)]
+        action_keys = [f"action.arm_{i}" for i in range(args.num_arms)]
+        print(f"Creating ConfigGeneratorFromNames with video_keys={prefixed_video_keys}, state_keys={state_keys}, action_keys={action_keys}")
+        from gr00t.experiment.data_config import ConfigGeneratorFromNames
+        data_gen = ConfigGeneratorFromNames(prefixed_video_keys, state_keys, action_keys)
+    else:
+        data_gen = ConfigGenerator(num_arms=args.num_arms, num_cams=args.num_cams)
     
-    modality_cfg = data_gen.modality_config()
-    # cast to expected ComposedModalityTransform
-    modality_transform = cast(ComposedModalityTransform, data_gen.transform())
-
-    # Instantiate policy
-    policy = Gr00tPolicy(
-        model_path=args.model_path,
-        modality_config=modality_cfg,
-        modality_transform=modality_transform,
-        embodiment_tag=args.embodiment_tag,
-        denoising_steps=args.denoising_steps,
-    )
-    print(f"Loaded Gr00tPolicy from {args.model_path} [embodiment={args.embodiment_tag}] with {args.denoising_steps} steps.")
-
-    # Start inference server
-    server = RobotInferenceServer(policy, host=args.host, port=args.port)
-    print(f"Starting Gr00t server at {args.host}:{args.port}")
-    server.run()
-
-
-if __name__ == '__main__':
-    main()

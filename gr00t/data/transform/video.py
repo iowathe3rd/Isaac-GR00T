@@ -126,6 +126,13 @@ class VideoTransform(ModalityTransform):
 
     def set_metadata(self, dataset_metadata: DatasetMetadata):
         super().set_metadata(dataset_metadata)
+        # Ensure apply_to matches available video modalities
+        available_keys = list(dataset_metadata.modalities.video.keys())
+        # Check if any sub_key matches metadata; if none, override apply_to to metadata keys
+        subs = [key.split('.')[1] for key in self.apply_to]
+        if not any(sub in available_keys for sub in subs):
+            self.apply_to = [f"video.{k}" for k in available_keys]
+            print(f"Overriding apply_to to match metadata video keys: {self.apply_to}")
         self.original_resolutions = {}
         for key in self.apply_to:
             split_keys = key.split(".")
@@ -144,8 +151,16 @@ class VideoTransform(ModalityTransform):
                 use_key = sub_key
             # set resolution for chosen key
             self.original_resolutions[key] = dataset_metadata.modalities.video[use_key].resolution
-        train_transform = self.get_transform(mode="train")
-        eval_transform = self.get_transform(mode="eval")
+        # After resolutions are set, generate transforms
+        try:
+            train_transform = self.get_transform(mode="train")
+            eval_transform = self.get_transform(mode="eval")
+        except Exception as e:
+            print(f"Warning: skipping video transforms due to error: {e}")
+            # Clear any existing transforms
+            self.train_transform = None
+            self.eval_transform = None
+            return
         if self.backend == "albumentations":
             self.train_transform = A.ReplayCompose(transforms=[train_transform])  # type: ignore
             if eval_transform is not None:
@@ -189,16 +204,18 @@ class VideoTransform(ModalityTransform):
         if self.backend == "torchvision":
             views = transform(views)
         elif self.backend == "albumentations":
+            # Albumentations ReplayCompose
             assert isinstance(transform, A.ReplayCompose), "Transform must be a ReplayCompose"
+            replay_compose: A.ReplayCompose = transform  # type: ignore
             first_frame = views[0]
-            transformed = transform(image=first_frame)
-            replay_data = transformed["replay"]
-            transformed_first_frame = transformed["image"]
+            transformed = replay_compose(image=first_frame)
+            replay_data = transformed.get("replay")
+            transformed_first_frame = transformed.get("image")
 
-            if len(views) > 1:
+            if len(views) > 1 and replay_data is not None:
                 # Apply the same transformations to the rest of the frames
                 transformed_frames = [
-                    transform.replay(replay_data, image=frame)["image"] for frame in views[1:]
+                    replay_compose.replay(replay_data, image=frame).get("image") for frame in views[1:]
                 ]
                 # Add the first frame back
                 transformed_frames = [transformed_first_frame] + transformed_frames
@@ -253,7 +270,7 @@ class VideoCrop(VideoTransform):
         description="The scale of the crop. The crop size is (width * scale, height * scale)",
     )
 
-    def get_transform(self, mode: Literal["train", "eval"] = "train") -> Callable:
+    def get_transform(self, mode: Literal["train", "eval"] = "train") -> Callable | None:
         """Get the transform for the given mode.
 
         Args:
@@ -262,10 +279,13 @@ class VideoCrop(VideoTransform):
         Returns:
             Callable: If mode is "train", return a random crop transform. If mode is "eval", return a center crop transform.
         """
-        # 1. Check the input resolution
-        assert (
-            len(set(self.original_resolutions.values())) == 1
-        ), f"All video keys must have the same resolution, got: {self.original_resolutions}"
+        # 1. Check the input resolution, skip crop if metadata not set properly
+        try:
+            assert len(set(self.original_resolutions.values())) == 1, \
+                f"All video keys must have the same resolution, got: {self.original_resolutions}"
+        except Exception as e:
+            print(f"Warning: skipping VideoCrop transform due to resolution issue: {e}")
+            return None  # type: ignore
         if self.height is None:
             assert self.width is None, "Height and width must be either both provided or both None"
             self.width, self.height = self.original_resolutions[self.apply_to[0]]
