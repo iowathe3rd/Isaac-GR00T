@@ -22,16 +22,15 @@ from gr00t.eval.robot import RobotInferenceServer
 from gr00t.data.transform.base import ComposedModalityTransform
 from typing import cast
 
-
 def main():
     parser = argparse.ArgumentParser("Gr00t Inference Server")
     parser.add_argument(
-        "--model_path", type=str, required=True,
+        "--model_path", type=str, default="nvidia/GR00T-N1-2B",
         help="Local path or HF repo ID of the pretrained model"
     )
     parser.add_argument(
-        "--embodiment_tag", type=str, default="new_embodiment",
-        help="Embodiment tag defined in metadata.json"
+        "--embodiment_tag", type=str, default=None,
+        help="Embodiment tag defined in metadata.json (auto-detect if None)"
     )
     parser.add_argument(
         "--num_arms", type=int, default=1,
@@ -54,12 +53,13 @@ def main():
         help="Server port"
     )
     args = parser.parse_args()
+    
     # Validate model path or HF repo ID
     if not os.path.exists(args.model_path) and '://' not in args.model_path:
         raise FileNotFoundError(
             f"Model path '{args.model_path}' not found locally or as HuggingFace repo."
         )
-
+    
     # Create data config and transforms
     data_gen = ConfigGenerator(num_arms=args.num_arms, num_cams=args.num_cams)
     modality_cfg = data_gen.modality_config()
