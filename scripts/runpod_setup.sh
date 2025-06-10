@@ -62,7 +62,7 @@ apt-get install -y -qq git git-lfs ffmpeg libsm6 libxext6 libgl1-mesa-glx
 if [ ! -d "$PERSISTENT_DIR/Isaac-GR00T" ]; then
     echo -e "${BLUE}📥 Cloning Isaac-GR00T repository...${NC}"
     cd "$PERSISTENT_DIR"
-    git clone https://github.com/NVIDIA/Isaac-GR00T.git
+    git clone https://github.com/iowathe3rd/Isaac-GR00T
     cd Isaac-GR00T
 else
     echo -e "${GREEN}✅ Isaac-GR00T already exists, updating...${NC}"

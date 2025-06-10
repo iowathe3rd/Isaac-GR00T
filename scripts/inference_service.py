@@ -54,11 +54,38 @@ def main():
     )
     args = parser.parse_args()
     
-    # Validate model path or HF repo ID
-    if not os.path.exists(args.model_path) and '://' not in args.model_path:
-        raise FileNotFoundError(
-            f"Model path '{args.model_path}' not found locally or as HuggingFace repo."
-        )
+    # Set HF_HOME if not set
+    if not os.environ.get("HF_HOME"):
+        os.environ["HF_HOME"] = "/persistent/huggingface_cache"
+    
+    print(f"Using model: {args.model_path}")
+    print(f"HF_HOME: {os.environ.get('HF_HOME')}")
+    
+    # Validate model path - distinguish between HuggingFace repos and local paths
+    def is_huggingface_repo(path: str) -> bool:
+        """Check if the path looks like a HuggingFace repository ID."""
+        # HuggingFace repos typically have format: username/repo-name
+        # They don't start with ./ or / and contain at least one /
+        return ('/' in path and 
+                not path.startswith('./') and 
+                not path.startswith('/') and
+                not os.path.exists(path))  # Not a local directory
+    
+    def validate_huggingface_repo(repo_id: str) -> bool:
+        """Validate that a HuggingFace repository exists and is accessible."""
+        try:
+            from huggingface_hub import repo_exists
+            return repo_exists(repo_id, repo_type="model")
+        except Exception as e:
+            print(f"Warning: Could not validate HuggingFace repo '{repo_id}': {e}")
+            return True  # Assume valid and let policy handle any errors
+    
+    if is_huggingface_repo(args.model_path):
+        print(f"Detected HuggingFace repo: {args.model_path}")
+        if not validate_huggingface_repo(args.model_path):
+            raise FileNotFoundError(f"HuggingFace repository '{args.model_path}' not found or not accessible.")
+    elif not os.path.exists(args.model_path):
+        raise FileNotFoundError(f"Local model path '{args.model_path}' not found.")
     
     # Create data config and transforms
     data_gen = ConfigGenerator(num_arms=args.num_arms, num_cams=args.num_cams)
