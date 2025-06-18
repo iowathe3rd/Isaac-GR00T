@@ -36,3 +36,16 @@ COPY demo_data /workspace/demo_data
 RUN pip install -e . --no-deps
 # need to install accelerate explicitly to avoid version conflicts
 RUN pip install accelerate>=0.26.0
+
+# Parameters for inference server
+ENV MODEL_PATH=phospho-app/GGmorello-gr00t-so100_test-073xe
+ENV DATA_CONFIG=so100_wc
+ENV EMBODIMENT_TAG=new_embodiment
+ENV DENOISING_STEPS=4
+ENV HOST=0.0.0.0
+ENV PORT=5555
+
+EXPOSE ${PORT}
+
+ENTRYPOINT ["python", "scripts/inference_service.py"]
+CMD ["--server", "--host", "${HOST}", "--port", "${PORT}", "--model_path", "${MODEL_PATH}", "--data_config", "${DATA_CONFIG}", "--embodiment_tag", "${EMBODIMENT_TAG}", "--denoising_steps", "${DENOISING_STEPS}"]
